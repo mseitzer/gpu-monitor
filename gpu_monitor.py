@@ -21,6 +21,11 @@ DEFAULT_SSH_TIMEOUT = 3
 # Default timeout in seconds after which remote commands are interrupted
 DEFAULT_CMD_TIMEOUT = 10
 
+# Default server file
+DEFAULT_SERVER_FILE = 'servers.txt'
+SERVER_FILE_PATH = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])),
+                                DEFAULT_SERVER_FILE)
+
 parser = argparse.ArgumentParser(description='Check state of GPU servers')
 parser.add_argument('-v', '--verbose', action='store_true',
                     help='Be verbose')
@@ -37,7 +42,7 @@ parser.add_argument('--ssh-timeout', default=DEFAULT_SSH_TIMEOUT,
 parser.add_argument('--cmd-timeout', default=DEFAULT_CMD_TIMEOUT,
                     help=('Timeout in seconds after which nvidia-smi '
                           'is interrupted'))
-parser.add_argument('--server-file', default='servers.txt',
+parser.add_argument('--server-file', default=SERVER_FILE_PATH,
                     help='File with addresses of servers to check')
 parser.add_argument('servers', nargs='*', default=[],
                     help='Servers to probe')
@@ -225,6 +230,7 @@ def main(argv):
 
     if len(args.servers) == 0:
         try:
+            debug('Using server file {}'.format(args.server_file))
             with open(args.server_file, 'r') as f:
                 servers = (s.strip() for s in f.readlines())
                 args.servers = [s for s in servers if s != '']
