@@ -2,12 +2,20 @@
 
 This Python script allows to check for free Nvidia GPUs in remote servers.
 Additional features include to list the type of GPUs and who's using them.
+The idea is to speed up the work of finding a free GPU in institutions that share multiple GPU servers.
 
-The idea is to speed up the work for someone trying to find a free GPU in institutions that share multiple GPU servers.
+The script works by using your account to SSH into the servers and running `nvidia-smi`. 
+
+## Features
+
+- Show all free GPUs across servers
+- Show all current users of all GPUs (-l or --list)
+- Show all GPUs used by yourself (-m or --me)
+- Resolve usernames to real names (-f or --finger)
 
 ## Requirements
 
-- Python3
+- python3
 - SSH access to some Linux servers with Nvidia GPUs
 - If the server you connect to uses a different user name than your local name, you either have to specify your name on the servers using the `-s` option, or set up access as described in [setup for convenience](#setup-for-convenience).
 
