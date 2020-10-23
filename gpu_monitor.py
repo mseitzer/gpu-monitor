@@ -132,6 +132,7 @@ def run_ps_local(pids):
     return res.decode('ascii') if res is not None else None
 
 def run_taskset_local(cpus, pid):
+    cpus = [str(x) for x in cpus]
     cmd = TASKSET_CMD.format(cpus=','.join(cpus), pid=pid)
     res = run_command(cmd)
     return res.decode('ascii') if res is not None else None
@@ -146,6 +147,7 @@ def run_ps_remote(server, pids, ssh_timeout, cmd_timeout):
 
 
 def run_taskset_remote(server, cpus, pid, ssh_timeout, cmd_timeout):
+    cpus = [str(x) for x in cpus]
     cmd = REMOTE_TASKSET_CMD.format(server=server,
                                pid=pid,
                                cpus=','.join(cpus),
@@ -230,9 +232,10 @@ def print_gpu_infos(server, gpu_infos, run_ps, run_taskset,
         users_by_pid = {}
 
     if server in cpu_affinities.keys():
-        for pid in pids:
-            taskset = run_taskset(cpus=cpu_affinities[server]["affinities"],
-                                 pid=pid)
+        for gpu_info in gpu_infos:
+            for pid in gpu_info["pids"]:
+                gpu_cpus=cpu_affinities[server]["affinities"][str(gpu_info["idx"])]
+                taskset = run_taskset(cpus=gpu_cpus, pid=pid)
 
     if translate_to_real_names:
         all_users = set((users_by_pid[pid] for gpu_info in gpu_infos
