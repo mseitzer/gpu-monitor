@@ -17,10 +17,10 @@ from functools import partial
 from logging import debug, info, error
 
 # Default timeout in seconds after which SSH stops trying to connect
-DEFAULT_SSH_TIMEOUT = 3
+DEFAULT_SSH_TIMEOUT = 30
 
 # Default timeout in seconds after which remote commands are interrupted
-DEFAULT_CMD_TIMEOUT = 10
+DEFAULT_CMD_TIMEOUT = 50
 
 # Default server file
 DEFAULT_SERVER_FILE = 'servers.txt'
