@@ -10,6 +10,7 @@ import os
 import pwd
 import subprocess
 import sys
+import time
 import json
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -38,6 +39,8 @@ parser = argparse.ArgumentParser(description='Check state of GPU servers')
 parser.add_argument('-v', '--verbose', action='store_true',
                     help='Be verbose')
 parser.add_argument('-l', '--list', action='store_true', help='Show used GPUs')
+parser.add_argument('-d', '--daemon', action='store_true',
+                    help='Loop')
 parser.add_argument('-t', '--taskset', action='store_true', help='Use Taskset to set CPU-GPU Affinities')
 parser.add_argument('-f', '--finger', action='store_true',
                     help='Attempt to resolve user names to real names')
@@ -262,9 +265,8 @@ def print_gpu_infos(server, gpu_infos, run_ps, run_taskset,
                                         status))
 
 
-def main(argv):
-    args = parser.parse_args(argv)
-
+def main(args):
+    
     logging.basicConfig(format='%(message)s',
                         level=logging.DEBUG if args.verbose else logging.INFO)
 
@@ -346,8 +348,11 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    import time
-    while True:
-        main(sys.argv[1:])
-        time.sleep(15)
+    args = parser.parse_args(sys.argv[1:])
+    if args.daemon:
+        while True:
+          main(args)
+          time.sleep(15)
+    else:
+          main(args)
 

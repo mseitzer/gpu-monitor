@@ -13,6 +13,7 @@ The script works by using your account to SSH into the servers and running `nvid
 - Show all GPUs used by yourself (-m or --me)
 - Resolve usernames to real names (-f or --finger)
 - Taskset jobs running on GPUs (-t or --taskset)
+- Run on a loop (-d or --daemon)
 
 ## Requirements
 
