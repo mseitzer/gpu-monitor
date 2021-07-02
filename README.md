@@ -12,6 +12,8 @@ The script works by using your account to SSH into the servers and running `nvid
 - Show all current users of all GPUs (-l or --list)
 - Show all GPUs used by yourself (-m or --me)
 - Resolve usernames to real names (-f or --finger)
+- Taskset jobs running on GPUs (-t or --taskset)
+- Run on a loop (-d or --daemon)
 
 ## Requirements
 
@@ -34,6 +36,8 @@ Server myserver.com:
 
 If you have some set of servers that you regularily check, specify them in the file `servers.txt`, one address per line.
 Once you did that, running just `./gpu_monitor.py` checks all servers specified in this file by default.
+
+If you wish to automatically set the CPU-GPU affinities, specify the `cpu_affinities.json` file as shown in the example.
 
 If you want to list all GPUs and who currently uses them, you can use the `-l` flag:
 ```

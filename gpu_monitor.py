@@ -10,26 +10,38 @@ import os
 import pwd
 import subprocess
 import sys
+import time
+import json
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from functools import partial
 from logging import debug, info, error
 
 # Default timeout in seconds after which SSH stops trying to connect
-DEFAULT_SSH_TIMEOUT = 3
+DEFAULT_SSH_TIMEOUT = 30
 
 # Default timeout in seconds after which remote commands are interrupted
-DEFAULT_CMD_TIMEOUT = 10
+DEFAULT_CMD_TIMEOUT = 50
 
 # Default server file
 DEFAULT_SERVER_FILE = 'servers.txt'
 SERVER_FILE_PATH = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])),
                                 DEFAULT_SERVER_FILE)
 
+# Default cpu affinities file for tasksetting
+DEFAULT_TASKSET_FILE = 'cpu_affinities.json'
+SERVER_TASKSET_PATH = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])),
+                                DEFAULT_TASKSET_FILE)
+
+NULL_FUNCTION = lambda *args, **kwargs : None
+
 parser = argparse.ArgumentParser(description='Check state of GPU servers')
 parser.add_argument('-v', '--verbose', action='store_true',
                     help='Be verbose')
 parser.add_argument('-l', '--list', action='store_true', help='Show used GPUs')
+parser.add_argument('-d', '--daemon', action='store_true',
+                    help='Loop')
+parser.add_argument('-t', '--taskset', action='store_true', help='Use Taskset to set CPU-GPU Affinities')
 parser.add_argument('-f', '--finger', action='store_true',
                     help='Attempt to resolve user names to real names')
 parser.add_argument('-m', '--me', action='store_true',
@@ -44,6 +56,8 @@ parser.add_argument('--cmd-timeout', default=DEFAULT_CMD_TIMEOUT,
                           'is interrupted'))
 parser.add_argument('--server-file', default=SERVER_FILE_PATH,
                     help='File with addresses of servers to check')
+parser.add_argument('--taskset-file', default=SERVER_TASKSET_PATH,
+                    help='File with cpu affinities information if using tasksetting functionality')
 parser.add_argument('servers', nargs='*', default=[],
                     help='Servers to probe')
 
@@ -60,8 +74,14 @@ REMOTE_NVIDIASMI_CMD = '{} {}'.format(SSH_CMD, NVIDIASMI_CMD)
 # Command for running ps locally
 PS_CMD = 'ps -o pid= -o ruser= -p {pids}'
 
+# Command for tasksetting locally
+TASKSET_CMD = 'taskset -cp {cpus} {pid}'
+
 # Command for running ps remotely
 REMOTE_PS_CMD = '{} {}'.format(SSH_CMD, PS_CMD)
+
+# Command for tasksetting remotely
+REMOTE_TASKSET_CMD = '{} {}'.format(SSH_CMD, TASKSET_CMD)
 
 # Command for getting real names remotely
 # See https://stackoverflow.com/a/38235661
@@ -114,6 +134,11 @@ def run_ps_local(pids):
     res = run_command(cmd)
     return res.decode('ascii') if res is not None else None
 
+def run_taskset_local(cpus, pid):
+    cpus = [str(x) for x in cpus]
+    cmd = TASKSET_CMD.format(cpus=','.join(cpus), pid=pid)
+    res = run_command(cmd)
+    return res.decode('ascii') if res is not None else None
 
 def run_ps_remote(server, pids, ssh_timeout, cmd_timeout):
     cmd = REMOTE_PS_CMD.format(server=server,
@@ -122,6 +147,18 @@ def run_ps_remote(server, pids, ssh_timeout, cmd_timeout):
                                cmd_timeout=cmd_timeout)
     res = run_command(cmd)
     return res.decode('ascii') if res is not None else None
+
+
+def run_taskset_remote(server, cpus, pid, ssh_timeout, cmd_timeout):
+    cpus = [str(x) for x in cpus]
+    cmd = REMOTE_TASKSET_CMD.format(server=server,
+                               pid=pid,
+                               cpus=','.join(cpus),
+                               ssh_timeout=ssh_timeout,
+                               cmd_timeout=cmd_timeout)
+    res = run_command(cmd)
+    return res.decode('ascii') if res is not None else None
+
 
 
 def get_real_names_local(users):
@@ -183,9 +220,9 @@ def print_free_gpus(server, gpu_infos):
             info('\tGPU {}, {}'.format(gpu_info['idx'], gpu_info['model']))
 
 
-def print_gpu_infos(server, gpu_infos, run_ps, run_get_real_names,
-                    filter_by_user=None,
-                    translate_to_real_names=False):
+def print_gpu_infos(server, gpu_infos, run_ps, run_taskset,
+                    run_get_real_names, filter_by_user=None,
+                    translate_to_real_names=False, cpu_affinities={}):
     pids = [pid for gpu_info in gpu_infos for pid in gpu_info['pids']]
     if len(pids) > 0:
         ps = run_ps(pids=pids)
@@ -196,6 +233,12 @@ def print_gpu_infos(server, gpu_infos, run_ps, run_get_real_names,
         users_by_pid = get_users_by_pid(ps)
     else:
         users_by_pid = {}
+
+    if server in cpu_affinities.keys():
+        for gpu_info in gpu_infos:
+            for pid in gpu_info["pids"]:
+                gpu_cpus=cpu_affinities[server]["affinities"][str(gpu_info["idx"])]
+                taskset = run_taskset(cpus=gpu_cpus, pid=pid)
 
     if translate_to_real_names:
         all_users = set((users_by_pid[pid] for gpu_info in gpu_infos
@@ -222,9 +265,8 @@ def print_gpu_infos(server, gpu_infos, run_ps, run_get_real_names,
                                         status))
 
 
-def main(argv):
-    args = parser.parse_args(argv)
-
+def main(args):
+    
     logging.basicConfig(format='%(message)s',
                         level=logging.DEBUG if args.verbose else logging.INFO)
 
@@ -238,6 +280,14 @@ def main(argv):
             error('Could not open server file {}'.format(args.server_file))
             return
 
+    try:
+        debug('Using taskset file {}'.format(args.taskset_file))
+        with open(args.taskset_file, 'r') as f:
+            cpu_affinities = json.load(f)
+    except OSError as e:
+        error('Could not open server file {}'.format(args.server_file))
+        cpu_affinities = {}
+       
     if len(args.servers) == 0:
         error(('No GPU servers to connect to specified.\nPut addresses in '
                'the server file or specify them manually as an argument'))
@@ -258,6 +308,7 @@ def main(argv):
         if server == '.' or server == 'localhost' or server == '127.0.0.1':
             run_nvidiasmi = run_nvidiasmi_local
             run_ps = run_ps_local
+            run_taskset = run_taskset_local
             run_get_real_names = get_real_names_local
         else:
             run_nvidiasmi = partial(run_nvidiasmi_remote,
@@ -268,10 +319,16 @@ def main(argv):
                              server=server,
                              ssh_timeout=args.ssh_timeout,
                              cmd_timeout=args.cmd_timeout)
+            run_taskset = partial(run_taskset_remote,
+                             server=server,
+                             ssh_timeout=args.ssh_timeout,
+                             cmd_timeout=args.cmd_timeout)
             run_get_real_names = partial(get_real_names_remote,
                                          server=server,
                                          ssh_timeout=args.ssh_timeout,
                                          cmd_timeout=args.cmd_timeout)
+
+        run_taskset = NULL_FUNCTION if args.taskset is False else run_taskset
 
         nvidiasmi = run_nvidiasmi()
         if nvidiasmi is None:
@@ -281,13 +338,21 @@ def main(argv):
 
         gpu_infos = get_gpu_infos(nvidiasmi)
 
-        if args.list:
-            print_gpu_infos(server, gpu_infos, run_ps, run_get_real_names,
-                            filter_by_user=args.user,
-                            translate_to_real_names=args.finger)
+        if args.list or args.taskset:
+            print_gpu_infos(server, gpu_infos, run_ps, run_taskset,
+                            run_get_real_names, filter_by_user=args.user,
+                            translate_to_real_names=args.finger,
+                            cpu_affinities=cpu_affinities)
         else:
             print_free_gpus(server, gpu_infos)
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    args = parser.parse_args(sys.argv[1:])
+    if args.daemon:
+        while True:
+          main(args)
+          time.sleep(15)
+    else:
+          main(args)
+
